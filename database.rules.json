@@ -1,0 +1,106 @@
+{
+  "rules": {
+    ".read": false,
+    ".write": false,
+    "games": {
+      "$gameId": {
+        ".read": "auth != null",
+        "status": {
+          ".write": false
+        },
+        "host_uid": {
+          ".write": false
+        },
+        "code": {
+          ".write": false
+        },
+        "accessory_code": {
+          ".write": false
+        },
+        "config": {
+          ".write": "auth != null && data.parent().child('host_uid').val() == auth.uid && data.parent().child('status').val() == 'LOBBY'"
+        },
+        "interrupts": {
+          ".write": false,
+          ".read": "auth != null"
+        },
+        "winner": {
+          ".write": false
+        },
+        "timers": {
+          ".write": false,
+          ".read": "auth != null"
+        }
+      }
+    },
+    "players": {
+      "$gameId": {
+        "$playerId": {
+          ".read": "auth != null && ($playerId == auth.uid || root.child('games').child($gameId).child('status').val() == 'ENDED')",
+          ".write": false,
+          "last_seen": {
+            ".write": "auth != null && $playerId == auth.uid"
+          }
+        }
+      }
+    },
+    "accessories": {
+      "$gameId": {
+        "$accessoryId": {
+          ".read": "auth != null",
+          ".write": false,
+          "last_seen": {
+            ".write": "auth != null"
+          }
+        }
+      }
+    },
+    "tasks": {
+      "$gameId": {
+        "$taskId": {
+          ".read": "auth != null",
+          ".write": false
+        }
+      }
+    },
+    "assignments": {
+      "$gameId": {
+        "$playerId": {
+          ".read": "auth != null && $playerId == auth.uid",
+          "$taskId": {
+            ".write": false
+          }
+        }
+      }
+    },
+    "meetings": {
+      "$gameId": {
+        "$meetingId": {
+          ".read": "auth != null",
+          ".write": false,
+          "votes": {
+            "$voterId": {
+              ".write": "auth != null && $voterId == auth.uid && data.parent().parent().child('status').val() == 'OPEN'"
+            }
+          }
+        }
+      }
+    },
+    "events": {
+      "$gameId": {
+        "$eventId": {
+          ".read": "auth != null",
+          ".write": false
+        }
+      }
+    },
+    "client_reqs": {
+      "$gameId": {
+        "$uid": {
+          ".write": "auth != null && $uid == auth.uid",
+          ".read": false
+        }
+      }
+    }
+  }
+}

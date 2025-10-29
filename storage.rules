@@ -1,0 +1,20 @@
+rules_version = '2';
+service firebase.storage {
+  match /b/{bucket}/o {
+    match /proofs/{gameId}/{playerId}/{taskId}/{fileName} {
+      allow read: if request.auth != null && (
+        request.auth.uid == playerId ||
+        request.auth.uid == resource.metadata.host_uid
+      );
+      allow write: if request.auth != null &&
+        request.auth.uid == playerId &&
+        request.resource.size < 10 * 1024 * 1024 &&
+        request.resource.contentType.matches('image/.*');
+    }
+
+    match /assets/{fileName} {
+      allow read: if request.auth != null;
+      allow write: false;
+    }
+  }
+}

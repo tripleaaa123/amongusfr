@@ -1,87 +1,134 @@
-# Welcome to React Router!
+# Among Us PWA
 
-A modern, production-ready template for building full-stack React applications using React Router.
-
-[![Open in StackBlitz](https://developer.stackblitz.com/img/open_in_stackblitz.svg)](https://stackblitz.com/github/remix-run/react-router-templates/tree/main/default)
+A mobile-first Progressive Web App (PWA) for playing Among Us-style games with friends. Built with Remix, Firebase, and deployable to Vercel.
 
 ## Features
 
-- 🚀 Server-side rendering
-- ⚡️ Hot Module Replacement (HMR)
-- 📦 Asset bundling and optimization
-- 🔄 Data loading and mutations
-- 🔒 TypeScript by default
-- 🎉 TailwindCSS for styling
-- 📖 [React Router docs](https://reactrouter.com/)
+- **PWA Installable**: Works offline and installable on mobile devices
+- **Real-time Gameplay**: Firebase RTDB for live game state
+- **Multiple Roles**: Impostor, Crewmate, and Snitch roles
+- **Task System**: Physical (QR-based) and digital mini-game tasks
+- **Sabotage & Meetings**: Global interrupts with synchronized gameplay
+- **Accessory Devices**: Master/Slave devices for enhanced gameplay
+- **Photo Proofs**: Camera integration for task completion
+- **Ghost Tasks**: Dead players can continue with digital tasks
 
-## Getting Started
+## Setup
 
-### Installation
+### 1. Firebase Setup
 
-Install the dependencies:
+1. Create a Firebase project at https://console.firebase.google.com
+2. Enable:
+   - Realtime Database
+   - Storage
+   - Authentication (Anonymous)
+   - Cloud Functions (Blaze plan required)
+
+3. Copy Firebase config to `.env`:
+   ```bash
+   cp .env.example .env
+   # Edit .env with your Firebase credentials
+   ```
+
+### 2. Install Dependencies
 
 ```bash
+# Main app
 npm install
+
+# Firebase Functions
+cd functions
+npm install
+cd ..
 ```
 
-### Development
-
-Start the development server with HMR:
+### 3. Deploy Firebase
 
 ```bash
+# Deploy database rules, storage rules, and functions
+firebase deploy
+```
+
+### 4. Generate QR Codes
+
+```bash
+# Generate QR codes for physical tasks
+node scripts/generate-qr.js your-game-id
+
+# This creates qr-codes/your-game-id/index.html
+# Print this page for physical task locations
+```
+
+## Development
+
+```bash
+# Run development server
 npm run dev
-```
 
-Your application will be available at `http://localhost:5173`.
-
-## Building for Production
-
-Create a production build:
-
-```bash
+# Build for production
 npm run build
+
+# Type check
+npm run typecheck
 ```
 
-## Deployment
+## Deployment to Vercel
 
-### Docker Deployment
+1. Install Vercel CLI:
+   ```bash
+   npm i -g vercel
+   ```
 
-To build and run using Docker:
+2. Deploy:
+   ```bash
+   vercel
+   ```
 
-```bash
-docker build -t my-app .
+3. Set environment variables in Vercel dashboard
 
-# Run the container
-docker run -p 3000:3000 my-app
-```
+## Game Flow
 
-The containerized application can be deployed to any platform that supports Docker, including:
+1. **Create Game**: Host creates game, gets game code + accessory code
+2. **Join**: Players join with game code + nickname
+3. **Configure**: Host adjusts settings (impostors, tasks, timers)
+4. **Start**: Roles and tasks assigned randomly
+5. **Play**:
+   - Complete tasks (scan QR → take photo or play mini-game)
+   - Impostors sabotage and eliminate players
+   - Call meetings to vote out suspects
+6. **Win Conditions**:
+   - Impostors win: alive impostors ≥ alive crewmates
+   - Crewmates win: all tasks complete or all impostors eliminated
 
-- AWS ECS
-- Google Cloud Run
-- Azure Container Apps
-- Digital Ocean App Platform
-- Fly.io
-- Railway
+## Task Types
 
-### DIY Deployment
+- **Physical Tasks**: Scan QR code at location → take photo proof
+- **Digital Tasks**: Complete mini-games (reaction test, wire matching)
+- **Ghost Tasks**: Dead crewmates get digital versions of remaining tasks
 
-If you're familiar with deploying Node applications, the built-in app server is production-ready.
+## Accessory Devices
 
-Make sure to deploy the output of `npm run build`
+Use tablets/phones as accessory devices:
 
-```
-├── package.json
-├── package-lock.json (or pnpm-lock.yaml, or bun.lockb)
-├── build/
-│   ├── client/    # Static assets
-│   └── server/    # Server-side code
-```
+- **MASTER**: Controls meetings, plays alarm during sabotage
+- **SLAVE**: Co-op partner for sabotage mini-games
 
-## Styling
+## Configuration Options
 
-This template comes with [Tailwind CSS](https://tailwindcss.com/) already configured for a simple default starting experience. You can use whatever CSS framework you prefer.
+- Number of impostors and snitches
+- Task pool size and tasks per player
+- Physical/digital task ratio
+- Timer durations (sabotage, meeting, voting)
+- Cooldown periods
+- Voting policies (abstain allowed, tie resolution)
 
----
+## Security
 
-Built with ❤️ using React Router.
+- Anonymous authentication only
+- Server-side validation for all game-changing actions
+- Signed JWT tokens for QR codes
+- Role information hidden from other players
+
+## License
+
+MIT
