@@ -89,7 +89,20 @@ export const createGameHTTP = onRequest({ region: 'us-central1' }, async (req, r
       timers: { server_ts: Date.now() }
     });
 
-    res.status(200).json({ result: { gameId, gameCode, accessoryCode } });
+    // Also add host as first player
+    await db.ref(`players/${gameId}/${decodedToken.uid}`).set({
+      uid: decodedToken.uid,
+      nickname: 'Host',
+      role: 'CREWMATE',
+      alive: true,
+      device_id: 'host-device',
+      rejoin_token: jwt.sign({ gameId, playerId: decodedToken.uid }, JWT_SECRET),
+      joined_at: Date.now(),
+      last_seen: Date.now(),
+      cooldowns: {}
+    });
+
+    res.status(200).json({ result: { gameId, gameCode, accessoryCode, playerId: decodedToken.uid } });
   } catch (error: any) {
     console.error('Error creating game:', error);
     res.status(500).json({ error: { message: error.message || 'Internal error', code: 'internal' } });
@@ -168,6 +181,71 @@ export const joinGameHTTP = onRequest({ region: 'us-central1' }, async (req, res
     res.status(200).json({ result: { playerId, rejoinToken, gameId } });
   } catch (error: any) {
     console.error('Error joining game:', error);
+    res.status(500).json({ error: { message: error.message || 'Internal error', code: 'internal' } });
+  }
+});
+
+// Join Accessory HTTP Function
+export const joinAccessoryHTTP = onRequest({ region: 'us-central1' }, async (req, res) => {
+  // Set CORS headers
+  Object.entries(corsHeaders).forEach(([key, value]) => {
+    res.set(key, value);
+  });
+
+  // Handle preflight
+  if (req.method === 'OPTIONS') {
+    res.status(204).send('');
+    return;
+  }
+
+  if (req.method !== 'POST') {
+    res.status(405).json({ error: 'Method not allowed' });
+    return;
+  }
+
+  try {
+    // Verify auth token
+    const authHeader = req.headers.authorization;
+    if (!authHeader || !authHeader.startsWith('Bearer ')) {
+      res.status(401).json({ error: { message: 'Unauthorized', code: 'unauthenticated' } });
+      return;
+    }
+
+    const idToken = authHeader.split('Bearer ')[1];
+    await admin.auth().verifyIdToken(idToken);
+
+    const { data } = req.body;
+    const { accessoryCode, role } = data || {};
+
+    if (!accessoryCode || !role || !['MASTER', 'SLAVE'].includes(role)) {
+      res.status(400).json({ error: { message: 'Invalid parameters', code: 'invalid-argument' } });
+      return;
+    }
+
+    // Find game by accessory_code (note the underscore!)
+    const gamesSnapshot = await db.ref('games').orderByChild('accessory_code').equalTo(accessoryCode).once('value');
+    const games = gamesSnapshot.val();
+
+    console.log('Looking for accessory code:', accessoryCode);
+    console.log('Found games:', games);
+
+    if (!games) {
+      res.status(404).json({ error: { message: 'Game not found', code: 'not-found' } });
+      return;
+    }
+
+    const gameId = Object.keys(games)[0];
+    const accessoryId = uuidv4();
+
+    await db.ref(`accessories/${gameId}/${accessoryId}`).set({
+      role,
+      connected: true,
+      last_seen: Date.now()
+    });
+
+    res.status(200).json({ result: { accessoryId, gameId } });
+  } catch (error: any) {
+    console.error('Error joining accessory:', error);
     res.status(500).json({ error: { message: error.message || 'Internal error', code: 'internal' } });
   }
 });

@@ -1,6 +1,7 @@
 import { useState, useEffect } from "react";
 import { useParams } from "react-router";
-import { db, Game, Player, callFunction } from "../lib/firebase";
+import { db, Game, Player, callFunction, signInAnon } from "../lib/firebase";
+import { callHttpFunction } from "../lib/firebase-http";
 import { ref, onValue } from "firebase/database";
 import MiniGameWires from "../components/MiniGameWires";
 import Countdown from "../components/Countdown";
@@ -38,8 +39,20 @@ export default function AccessoryDevice() {
     if (!accessoryCode) return;
 
     try {
-      const join = callFunction("joinAccessory");
-      await join({ accessoryCode: accessoryCode.toUpperCase(), role: selectedRole });
+      await signInAnon();
+      const result = await callHttpFunction<
+        {accessoryCode: string, role: string},
+        {accessoryId: string, gameId: string}
+      >("joinAccessoryHTTP", {
+        accessoryCode: accessoryCode.toUpperCase(),
+        role: selectedRole
+      });
+
+      // Navigate to the correct game if we got a gameId
+      if (result.gameId && !gameId) {
+        window.location.href = `/game/${result.gameId}/accessory`;
+      }
+
       setRole(selectedRole);
     } catch (err: any) {
       alert(err.message);

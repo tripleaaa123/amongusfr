@@ -33,7 +33,7 @@ var __importStar = (this && this.__importStar) || (function () {
     };
 })();
 Object.defineProperty(exports, "__esModule", { value: true });
-exports.updateGameConfig = exports.skipVote = exports.vote = exports.callMeeting = exports.resolveSabotage = exports.startSabotage = exports.completeTask = exports.submitProof = exports.endGame = exports.startGame = exports.joinAccessory = exports.joinGame = exports.createGame = exports.joinGameHTTP = exports.createGameHTTP = void 0;
+exports.updateGameConfig = exports.skipVote = exports.vote = exports.callMeeting = exports.resolveSabotage = exports.startSabotage = exports.completeTask = exports.submitProof = exports.endGame = exports.startGame = exports.joinAccessory = exports.joinGame = exports.createGame = exports.joinAccessoryHTTP = exports.joinGameHTTP = exports.createGameHTTP = void 0;
 const https_1 = require("firebase-functions/v2/https");
 const admin = __importStar(require("firebase-admin"));
 const jwt = __importStar(require("jsonwebtoken"));
@@ -43,6 +43,7 @@ admin.initializeApp();
 var http_functions_1 = require("./http-functions");
 Object.defineProperty(exports, "createGameHTTP", { enumerable: true, get: function () { return http_functions_1.createGameHTTP; } });
 Object.defineProperty(exports, "joinGameHTTP", { enumerable: true, get: function () { return http_functions_1.joinGameHTTP; } });
+Object.defineProperty(exports, "joinAccessoryHTTP", { enumerable: true, get: function () { return http_functions_1.joinAccessoryHTTP; } });
 const db = admin.database();
 const JWT_SECRET = process.env.JWT_SECRET || 'dev-secret-key';
 // Configure CORS to allow requests from Vercel deployments and localhost

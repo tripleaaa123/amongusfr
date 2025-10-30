@@ -16,7 +16,12 @@ export default function Index() {
     setError("");
     try {
       await signInAnon();
-      const result = await callHttpFunction<{}, {gameId: string, gameCode: string, accessoryCode: string}>("createGameHTTP", {});
+      const result = await callHttpFunction<{}, {gameId: string, gameCode: string, accessoryCode: string, playerId: string}>("createGameHTTP", {});
+
+      // Store host player info
+      localStorage.setItem("player_id", result.playerId);
+      localStorage.setItem("game_id", result.gameId);
+
       navigate(`/host/create?gameId=${result.gameId}&code=${result.gameCode}&accessoryCode=${result.accessoryCode}`);
     } catch (err: any) {
       setError(err.message || "Failed to create game");
