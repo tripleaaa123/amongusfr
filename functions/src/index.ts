@@ -6,7 +6,7 @@ import { v4 as uuidv4 } from 'uuid';
 admin.initializeApp();
 
 const db = admin.database();
-const JWT_SECRET = functions.config().jwt?.secret || 'dev-secret-key';
+const JWT_SECRET = process.env.JWT_SECRET || 'dev-secret-key';
 
 function generateCode(length: number = 4): string {
   const chars = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789';

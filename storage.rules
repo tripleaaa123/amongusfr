@@ -14,7 +14,7 @@ service firebase.storage {
 
     match /assets/{fileName} {
       allow read: if request.auth != null;
-      allow write: false;
+      allow write: if false;
     }
   }
 }
