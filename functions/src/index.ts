@@ -1,4 +1,4 @@
-import * as functions from 'firebase-functions';
+import { onCall, HttpsError } from 'firebase-functions/v2/https';
 import * as admin from 'firebase-admin';
 import * as jwt from 'jsonwebtoken';
 import { v4 as uuidv4 } from 'uuid';
@@ -7,6 +7,12 @@ admin.initializeApp();
 
 const db = admin.database();
 const JWT_SECRET = process.env.JWT_SECRET || 'dev-secret-key';
+
+// Configure CORS to allow requests from Vercel deployments and localhost
+const corsOptions = {
+  cors: true,  // Allow all origins for now, we'll restrict later if needed
+  region: 'us-central1'
+};
 
 function generateCode(length: number = 4): string {
   const chars = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789';
@@ -17,8 +23,8 @@ function generateCode(length: number = 4): string {
   return result;
 }
 
-export const createGame = functions.https.onCall(async (data, context) => {
-  if (!context.auth) throw new functions.https.HttpsError('unauthenticated', 'Must be signed in');
+export const createGame = onCall(corsOptions, async (request) => {
+  if (!request.auth) throw new HttpsError('unauthenticated', 'Must be signed in');
 
   const gameId = uuidv4();
   const gameCode = generateCode(4);
@@ -26,7 +32,7 @@ export const createGame = functions.https.onCall(async (data, context) => {
 
   await db.ref(`games/${gameId}`).set({
     status: 'LOBBY',
-    host_uid: context.auth.uid,
+    host_uid: request.auth.uid,
     code: gameCode,
     accessory_code: accessoryCode,
     created_at: Date.now(),
@@ -54,26 +60,26 @@ export const createGame = functions.https.onCall(async (data, context) => {
   return { gameId, gameCode, accessoryCode };
 });
 
-export const joinGame = functions.https.onCall(async (data, context) => {
-  if (!context.auth) throw new functions.https.HttpsError('unauthenticated', 'Must be signed in');
+export const joinGame = onCall(corsOptions, async (request) => {
+  if (!request.auth) throw new HttpsError('unauthenticated', 'Must be signed in');
 
-  const { gameCode, nickname, deviceId } = data;
+  const { gameCode, nickname, deviceId } = request.data;
   if (!gameCode || !nickname || !deviceId) {
-    throw new functions.https.HttpsError('invalid-argument', 'Missing required fields');
+    throw new HttpsError('invalid-argument', 'Missing required fields');
   }
 
   const gamesSnapshot = await db.ref('games').orderByChild('code').equalTo(gameCode).once('value');
   const games = gamesSnapshot.val();
-  if (!games) throw new functions.https.HttpsError('not-found', 'Game not found');
+  if (!games) throw new HttpsError('not-found', 'Game not found');
 
   const gameId = Object.keys(games)[0];
   const game = games[gameId];
 
   if (game.status !== 'LOBBY') {
-    throw new functions.https.HttpsError('failed-precondition', 'Game already started');
+    throw new HttpsError('failed-precondition', 'Game already started');
   }
 
-  const playerId = context.auth.uid;
+  const playerId = request.auth.uid;
   const rejoinToken = jwt.sign({ gameId, playerId }, JWT_SECRET);
 
   await db.ref(`players/${gameId}/${playerId}`).set({
@@ -91,17 +97,17 @@ export const joinGame = functions.https.onCall(async (data, context) => {
   return { playerId, rejoinToken, gameId };
 });
 
-export const joinAccessory = functions.https.onCall(async (data, context) => {
-  if (!context.auth) throw new functions.https.HttpsError('unauthenticated', 'Must be signed in');
+export const joinAccessory = onCall(corsOptions, async (request) => {
+  if (!request.auth) throw new HttpsError('unauthenticated', 'Must be signed in');
 
-  const { accessoryCode, role } = data;
+  const { accessoryCode, role } = request.data;
   if (!accessoryCode || !role || !['MASTER', 'SLAVE'].includes(role)) {
-    throw new functions.https.HttpsError('invalid-argument', 'Invalid parameters');
+    throw new HttpsError('invalid-argument', 'Invalid parameters');
   }
 
   const gamesSnapshot = await db.ref('games').orderByChild('accessory_code').equalTo(accessoryCode).once('value');
   const games = gamesSnapshot.val();
-  if (!games) throw new functions.https.HttpsError('not-found', 'Game not found');
+  if (!games) throw new HttpsError('not-found', 'Game not found');
 
   const gameId = Object.keys(games)[0];
   const accessoryId = uuidv4();
@@ -115,21 +121,21 @@ export const joinAccessory = functions.https.onCall(async (data, context) => {
   return { accessoryId, gameId };
 });
 
-export const startGame = functions.https.onCall(async (data, context) => {
-  if (!context.auth) throw new functions.https.HttpsError('unauthenticated', 'Must be signed in');
+export const startGame = onCall(corsOptions, async (request) => {
+  if (!request.auth) throw new HttpsError('unauthenticated', 'Must be signed in');
 
-  const { gameId } = data;
-  if (!gameId) throw new functions.https.HttpsError('invalid-argument', 'Missing gameId');
+  const { gameId } = request.data;
+  if (!gameId) throw new HttpsError('invalid-argument', 'Missing gameId');
 
   const gameSnapshot = await db.ref(`games/${gameId}`).once('value');
   const game = gameSnapshot.val();
 
-  if (!game) throw new functions.https.HttpsError('not-found', 'Game not found');
-  if (game.host_uid !== context.auth.uid) {
-    throw new functions.https.HttpsError('permission-denied', 'Only host can start');
+  if (!game) throw new HttpsError('not-found', 'Game not found');
+  if (game.host_uid !== request.auth.uid) {
+    throw new HttpsError('permission-denied', 'Only host can start');
   }
   if (game.status !== 'LOBBY') {
-    throw new functions.https.HttpsError('failed-precondition', 'Game already started');
+    throw new HttpsError('failed-precondition', 'Game already started');
   }
 
   const playersSnapshot = await db.ref(`players/${gameId}`).once('value');
@@ -137,7 +143,7 @@ export const startGame = functions.https.onCall(async (data, context) => {
   const playerIds = Object.keys(players);
 
   if (playerIds.length < 3) {
-    throw new functions.https.HttpsError('failed-precondition', 'Need at least 3 players');
+    throw new HttpsError('failed-precondition', 'Need at least 3 players');
   }
 
   const shuffled = [...playerIds].sort(() => Math.random() - 0.5);
@@ -196,201 +202,314 @@ export const startGame = functions.https.onCall(async (data, context) => {
   for (const playerId of playerIds) {
     const playerTasks = [...allTasks].sort(() => Math.random() - 0.5).slice(0, game.config.tasks_per_player);
     for (const task of playerTasks) {
-      updates[`assignments/${gameId}/${playerId}/${task.id}`] = {
-        status: 'PENDING'
-      };
+      updates[`assignments/${gameId}/${playerId}/${task.id}`] = { status: 'PENDING' };
     }
   }
 
   updates[`games/${gameId}/status`] = 'RUNNING';
-  updates[`games/${gameId}/timers/server_ts`] = Date.now();
-
   await db.ref().update(updates);
 
   return { success: true };
 });
 
-export const playerCallMeeting = functions.https.onCall(async (data, context) => {
-  if (!context.auth) throw new functions.https.HttpsError('unauthenticated', 'Must be signed in');
+export const endGame = onCall(corsOptions, async (request) => {
+  if (!request.auth) throw new HttpsError('unauthenticated', 'Must be signed in');
 
-  const { gameId } = data;
-  const playerId = context.auth.uid;
+  const { gameId } = request.data;
+  if (!gameId) throw new HttpsError('invalid-argument', 'Missing gameId');
 
-  const [gameSnapshot, playerSnapshot] = await Promise.all([
-    db.ref(`games/${gameId}`).once('value'),
-    db.ref(`players/${gameId}/${playerId}`).once('value')
-  ]);
-
+  const gameSnapshot = await db.ref(`games/${gameId}`).once('value');
   const game = gameSnapshot.val();
-  const player = playerSnapshot.val();
 
-  if (!game || !player) throw new functions.https.HttpsError('not-found', 'Game or player not found');
-  if (!player.alive) throw new functions.https.HttpsError('failed-precondition', 'Dead players cannot call meetings');
-  if (game.interrupts.active) throw new functions.https.HttpsError('failed-precondition', 'Interrupt already active');
-
-  const now = Date.now();
-  if (player.cooldowns?.meeting_ready_at && player.cooldowns.meeting_ready_at > now) {
-    throw new functions.https.HttpsError('failed-precondition', 'Meeting on cooldown');
+  if (!game) throw new HttpsError('not-found', 'Game not found');
+  if (game.host_uid !== request.auth.uid) {
+    throw new HttpsError('permission-denied', 'Only host can end');
   }
 
-  const meetingId = uuidv4();
-  const ends_at = now + game.config.meeting_duration_ms;
-
-  await db.ref().update({
-    [`games/${gameId}/interrupts/active`]: {
-      id: meetingId,
-      type: 'MEETING',
-      started_at: now,
-      ends_at
-    },
-    [`meetings/${gameId}/${meetingId}`]: {
-      status: 'OPEN',
-      started_at: now,
-      ends_at,
-      votes: {}
-    },
-    [`players/${gameId}/${playerId}/cooldowns/meeting_ready_at`]: now + game.config.meeting_cd_ms
+  await db.ref(`games/${gameId}`).update({
+    status: 'ENDED',
+    winner: 'NONE'
   });
 
-  return { success: true, meetingId };
+  return { success: true };
 });
 
-export const impostorSabotage = functions.https.onCall(async (data, context) => {
-  if (!context.auth) throw new functions.https.HttpsError('unauthenticated', 'Must be signed in');
+export const submitProof = onCall(corsOptions, async (request) => {
+  if (!request.auth) throw new HttpsError('unauthenticated', 'Must be signed in');
 
-  const { gameId } = data;
-  const playerId = context.auth.uid;
+  const { gameId, taskId, proofUrl } = request.data;
+  if (!gameId || !taskId || !proofUrl) {
+    throw new HttpsError('invalid-argument', 'Missing required fields');
+  }
 
-  const [gameSnapshot, playerSnapshot] = await Promise.all([
-    db.ref(`games/${gameId}`).once('value'),
-    db.ref(`players/${gameId}/${playerId}`).once('value')
-  ]);
+  const playerId = request.auth.uid;
+  await db.ref(`assignments/${gameId}/${playerId}/${taskId}`).update({
+    status: 'COMPLETE',
+    proof_url: proofUrl,
+    completed_at: Date.now()
+  });
 
-  const game = gameSnapshot.val();
+  return { success: true };
+});
+
+export const completeTask = onCall(corsOptions, async (request) => {
+  if (!request.auth) throw new HttpsError('unauthenticated', 'Must be signed in');
+
+  const { gameId, taskId, score } = request.data;
+  if (!gameId || !taskId) {
+    throw new HttpsError('invalid-argument', 'Missing required fields');
+  }
+
+  const playerId = request.auth.uid;
+  await db.ref(`assignments/${gameId}/${playerId}/${taskId}`).update({
+    status: 'COMPLETE',
+    score: score || 0,
+    completed_at: Date.now()
+  });
+
+  const assignmentsSnapshot = await db.ref(`assignments/${gameId}/${playerId}`).once('value');
+  const assignments = assignmentsSnapshot.val() || {};
+  const totalTasks = Object.keys(assignments).length;
+  const completedTasks = Object.values(assignments).filter((a: any) => a.status === 'COMPLETE').length;
+
+  if (completedTasks === totalTasks) {
+    const playerSnapshot = await db.ref(`players/${gameId}/${playerId}`).once('value');
+    const player = playerSnapshot.val();
+
+    if (player && player.role === 'SNITCH') {
+      await db.ref(`games/${gameId}`).update({
+        status: 'ENDED',
+        winner: 'SNITCH'
+      });
+    }
+  }
+
+  return { success: true };
+});
+
+export const startSabotage = onCall(corsOptions, async (request) => {
+  if (!request.auth) throw new HttpsError('unauthenticated', 'Must be signed in');
+
+  const { gameId, sabotageType } = request.data;
+  if (!gameId || !sabotageType) {
+    throw new HttpsError('invalid-argument', 'Missing required fields');
+  }
+
+  const playerId = request.auth.uid;
+  const playerSnapshot = await db.ref(`players/${gameId}/${playerId}`).once('value');
   const player = playerSnapshot.val();
 
-  if (!game || !player) throw new functions.https.HttpsError('not-found', 'Game or player not found');
-  if (player.role !== 'IMPOSTOR') throw new functions.https.HttpsError('permission-denied', 'Only impostors can sabotage');
-  if (!player.alive) throw new functions.https.HttpsError('failed-precondition', 'Dead players cannot sabotage');
-  if (game.interrupts.active) throw new functions.https.HttpsError('failed-precondition', 'Interrupt already active');
+  if (!player || player.role !== 'IMPOSTOR') {
+    throw new HttpsError('permission-denied', 'Only impostors can sabotage');
+  }
 
   const now = Date.now();
-  if (player.cooldowns?.sabotage_ready_at && player.cooldowns.sabotage_ready_at > now) {
-    throw new functions.https.HttpsError('failed-precondition', 'Sabotage on cooldown');
+  if (player.cooldowns?.sabotage_ready_at && now < player.cooldowns.sabotage_ready_at) {
+    throw new HttpsError('failed-precondition', 'Sabotage on cooldown');
+  }
+
+  const gameSnapshot = await db.ref(`games/${gameId}`).once('value');
+  const game = gameSnapshot.val();
+
+  if (game.interrupts?.active) {
+    throw new HttpsError('failed-precondition', 'Another interrupt is active');
   }
 
   const sabotageId = uuidv4();
-  const ends_at = now + game.config.sabotage_duration_ms;
+  const duration = game.config.sabotage_duration_ms;
 
   await db.ref().update({
     [`games/${gameId}/interrupts/active`]: {
       id: sabotageId,
       type: 'SABOTAGE',
       started_at: now,
-      ends_at
+      ends_at: now + duration
     },
     [`players/${gameId}/${playerId}/cooldowns/sabotage_ready_at`]: now + game.config.sabotage_cd_ms
   });
 
-  return { success: true, sabotageId };
-});
+  setTimeout(async () => {
+    const currentInterruptSnapshot = await db.ref(`games/${gameId}/interrupts/active`).once('value');
+    const currentInterrupt = currentInterruptSnapshot.val();
 
-export const impostorMarkDead = functions.https.onCall(async (data, context) => {
-  if (!context.auth) throw new functions.https.HttpsError('unauthenticated', 'Must be signed in');
-
-  const { gameId, victimPlayerId } = data;
-  const playerId = context.auth.uid;
-
-  const [playerSnapshot, victimSnapshot] = await Promise.all([
-    db.ref(`players/${gameId}/${playerId}`).once('value'),
-    db.ref(`players/${gameId}/${victimPlayerId}`).once('value')
-  ]);
-
-  const player = playerSnapshot.val();
-  const victim = victimSnapshot.val();
-
-  if (!player || !victim) throw new functions.https.HttpsError('not-found', 'Player not found');
-  if (player.role !== 'IMPOSTOR') throw new functions.https.HttpsError('permission-denied', 'Only impostors can kill');
-  if (!player.alive) throw new functions.https.HttpsError('failed-precondition', 'Dead players cannot kill');
-  if (!victim.alive) throw new functions.https.HttpsError('failed-precondition', 'Player already dead');
-
-  await db.ref(`players/${gameId}/${victimPlayerId}/alive`).set(false);
-
-  await checkGameEnd(gameId);
+    if (currentInterrupt?.id === sabotageId) {
+      await db.ref().update({
+        [`games/${gameId}/interrupts/active`]: null,
+        [`games/${gameId}/status`]: 'ENDED',
+        [`games/${gameId}/winner`]: 'IMPOSTORS'
+      });
+    }
+  }, duration);
 
   return { success: true };
 });
 
-export const submitVote = functions.https.onCall(async (data, context) => {
-  if (!context.auth) throw new functions.https.HttpsError('unauthenticated', 'Must be signed in');
+export const resolveSabotage = onCall(corsOptions, async (request) => {
+  if (!request.auth) throw new HttpsError('unauthenticated', 'Must be signed in');
 
-  const { gameId, meetingId, targetPlayerId } = data;
-  const voterId = context.auth.uid;
+  const { gameId } = request.data;
+  if (!gameId) throw new HttpsError('invalid-argument', 'Missing gameId');
 
-  const [meetingSnapshot, voterSnapshot] = await Promise.all([
-    db.ref(`meetings/${gameId}/${meetingId}`).once('value'),
-    db.ref(`players/${gameId}/${voterId}`).once('value')
-  ]);
+  const gameSnapshot = await db.ref(`games/${gameId}`).once('value');
+  const game = gameSnapshot.val();
 
+  if (!game?.interrupts?.active || game.interrupts.active.type !== 'SABOTAGE') {
+    throw new HttpsError('failed-precondition', 'No active sabotage');
+  }
+
+  await db.ref(`games/${gameId}/interrupts/active`).set(null);
+
+  return { success: true };
+});
+
+export const callMeeting = onCall(corsOptions, async (request) => {
+  if (!request.auth) throw new HttpsError('unauthenticated', 'Must be signed in');
+
+  const { gameId } = request.data;
+  if (!gameId) throw new HttpsError('invalid-argument', 'Missing gameId');
+
+  const playerId = request.auth.uid;
+  const playerSnapshot = await db.ref(`players/${gameId}/${playerId}`).once('value');
+  const player = playerSnapshot.val();
+
+  if (!player || !player.alive) {
+    throw new HttpsError('permission-denied', 'Only alive players can call meetings');
+  }
+
+  const now = Date.now();
+  if (player.cooldowns?.meeting_ready_at && now < player.cooldowns.meeting_ready_at) {
+    throw new HttpsError('failed-precondition', 'Meeting on cooldown');
+  }
+
+  const gameSnapshot = await db.ref(`games/${gameId}`).once('value');
+  const game = gameSnapshot.val();
+
+  if (game.interrupts?.active) {
+    throw new HttpsError('failed-precondition', 'Another interrupt is active');
+  }
+
+  const meetingId = uuidv4();
+  const discussionDuration = game.config.meeting_duration_ms;
+  const votingDuration = game.config.voting_duration_ms;
+
+  await db.ref().update({
+    [`games/${gameId}/interrupts/active`]: {
+      id: meetingId,
+      type: 'MEETING',
+      started_at: now,
+      ends_at: now + discussionDuration + votingDuration
+    },
+    [`meetings/${gameId}/${meetingId}`]: {
+      status: 'OPEN',
+      started_at: now,
+      ends_at: now + discussionDuration + votingDuration,
+      votes: {}
+    },
+    [`players/${gameId}/${playerId}/cooldowns/meeting_ready_at`]: now + game.config.meeting_cd_ms
+  });
+
+  setTimeout(async () => {
+    const currentInterruptSnapshot = await db.ref(`games/${gameId}/interrupts/active`).once('value');
+    const currentInterrupt = currentInterruptSnapshot.val();
+
+    if (currentInterrupt?.id === meetingId) {
+      await resolveMeeting(gameId, meetingId);
+    }
+  }, discussionDuration + votingDuration);
+
+  return { success: true, meetingId };
+});
+
+export const vote = onCall(corsOptions, async (request) => {
+  if (!request.auth) throw new HttpsError('unauthenticated', 'Must be signed in');
+
+  const { gameId, meetingId, targetPlayerId } = request.data;
+  if (!gameId || !meetingId) {
+    throw new HttpsError('invalid-argument', 'Missing required fields');
+  }
+
+  const playerId = request.auth.uid;
+  const playerSnapshot = await db.ref(`players/${gameId}/${playerId}`).once('value');
+  const player = playerSnapshot.val();
+
+  if (!player || !player.alive) {
+    throw new HttpsError('permission-denied', 'Only alive players can vote');
+  }
+
+  const meetingSnapshot = await db.ref(`meetings/${gameId}/${meetingId}`).once('value');
   const meeting = meetingSnapshot.val();
-  const voter = voterSnapshot.val();
 
-  if (!meeting || !voter) throw new functions.https.HttpsError('not-found', 'Meeting or voter not found');
-  if (meeting.status !== 'OPEN') throw new functions.https.HttpsError('failed-precondition', 'Voting closed');
-  if (!voter.alive) throw new functions.https.HttpsError('failed-precondition', 'Dead players cannot vote');
+  if (!meeting || meeting.status !== 'OPEN') {
+    throw new HttpsError('failed-precondition', 'Meeting is not open for voting');
+  }
 
-  await db.ref(`meetings/${gameId}/${meetingId}/votes/${voterId}`).set({
-    target: targetPlayerId,
+  await db.ref(`meetings/${gameId}/${meetingId}/votes/${playerId}`).set({
+    target: targetPlayerId || null,
     ts: Date.now()
   });
 
   return { success: true };
 });
 
-export const resolveMeeting = functions.https.onCall(async (data, context) => {
-  if (!context.auth) throw new functions.https.HttpsError('unauthenticated', 'Must be signed in');
+export const skipVote = onCall(corsOptions, async (request) => {
+  if (!request.auth) throw new HttpsError('unauthenticated', 'Must be signed in');
 
-  const { gameId, meetingId } = data;
+  const { gameId, meetingId } = request.data;
+  if (!gameId || !meetingId) {
+    throw new HttpsError('invalid-argument', 'Missing required fields');
+  }
 
-  const [gameSnapshot, meetingSnapshot] = await Promise.all([
-    db.ref(`games/${gameId}`).once('value'),
-    db.ref(`meetings/${gameId}/${meetingId}`).once('value')
-  ]);
+  const playerId = request.auth.uid;
+  await db.ref(`meetings/${gameId}/${meetingId}/votes/${playerId}`).set({
+    target: null,
+    ts: Date.now()
+  });
 
-  const game = gameSnapshot.val();
+  return { success: true };
+});
+
+async function resolveMeeting(gameId: string, meetingId: string) {
+  const meetingSnapshot = await db.ref(`meetings/${gameId}/${meetingId}`).once('value');
   const meeting = meetingSnapshot.val();
 
-  if (!game || !meeting) throw new functions.https.HttpsError('not-found', 'Game or meeting not found');
-  if (meeting.status !== 'OPEN') throw new functions.https.HttpsError('failed-precondition', 'Meeting already resolved');
+  if (!meeting || meeting.status !== 'OPEN') return;
 
-  const votes = meeting.votes || {};
-  const voteCounts: { [playerId: string]: number } = {};
-  let maxVotes = 0;
-  let topPlayers: string[] = [];
+  const playersSnapshot = await db.ref(`players/${gameId}`).once('value');
+  const players = playersSnapshot.val() || {};
 
-  for (const vote of Object.values(votes) as any[]) {
-    if (vote.target) {
-      voteCounts[vote.target] = (voteCounts[vote.target] || 0) + 1;
-      if (voteCounts[vote.target] > maxVotes) {
-        maxVotes = voteCounts[vote.target];
-        topPlayers = [vote.target];
-      } else if (voteCounts[vote.target] === maxVotes) {
-        topPlayers.push(vote.target);
-      }
+  const alivePlayers = Object.entries(players).filter(([_, p]: any) => p.alive);
+  const voteCounts: { [key: string]: number } = {};
+  let skipCount = 0;
+
+  for (const [voterId, vote] of Object.entries(meeting.votes || {})) {
+    const voter = players[voterId];
+    if (!voter?.alive) continue;
+
+    const target = (vote as any).target;
+    if (target === null) {
+      skipCount++;
+    } else {
+      voteCounts[target] = (voteCounts[target] || 0) + 1;
     }
   }
 
   let ejectedPlayerId: string | undefined;
-  let reason: 'TIE_NO_EJECT' | 'MAJORITY' | 'RANDOM_TOP';
+  let reason: string;
 
-  if (topPlayers.length === 0 || maxVotes === 0) {
+  const gameSnapshot = await db.ref(`games/${gameId}`).once('value');
+  const game = gameSnapshot.val();
+
+  if (Object.keys(voteCounts).length === 0 || skipCount >= Math.max(...Object.values(voteCounts), 0)) {
     reason = 'TIE_NO_EJECT';
-  } else if (topPlayers.length === 1) {
-    ejectedPlayerId = topPlayers[0];
-    reason = 'MAJORITY';
   } else {
-    if (game.config.voting.tie_policy === 'RANDOM_TOP') {
-      ejectedPlayerId = topPlayers[Math.floor(Math.random() * topPlayers.length)];
+    const topVotes = Math.max(...Object.values(voteCounts));
+    const tiedPlayers = Object.entries(voteCounts).filter(([_, count]) => count === topVotes).map(([id]) => id);
+
+    if (tiedPlayers.length === 1) {
+      ejectedPlayerId = tiedPlayers[0];
+      reason = 'MAJORITY';
+    } else if (game.config.voting.tie_policy === 'RANDOM_TOP') {
+      ejectedPlayerId = tiedPlayers[Math.floor(Math.random() * tiedPlayers.length)];
       reason = 'RANDOM_TOP';
     } else {
       reason = 'TIE_NO_EJECT';
@@ -399,251 +518,52 @@ export const resolveMeeting = functions.https.onCall(async (data, context) => {
 
   const updates: any = {
     [`meetings/${gameId}/${meetingId}/status`]: 'RESOLVED',
-    [`meetings/${gameId}/${meetingId}/result`]: { ejected_player_id: ejectedPlayerId, reason },
+    [`meetings/${gameId}/${meetingId}/result`]: {
+      ejected_player_id: ejectedPlayerId,
+      reason
+    },
     [`games/${gameId}/interrupts/active`]: null
   };
 
   if (ejectedPlayerId) {
     updates[`players/${gameId}/${ejectedPlayerId}/alive`] = false;
+
+    const ejectedPlayer = players[ejectedPlayerId];
+    const remainingImpostors = alivePlayers.filter(([_, p]: any) => p.role === 'IMPOSTOR' && p.alive).length - (ejectedPlayer.role === 'IMPOSTOR' ? 1 : 0);
+    const remainingCrewmates = alivePlayers.filter(([_, p]: any) => p.role !== 'IMPOSTOR' && p.alive).length - (ejectedPlayer.role !== 'IMPOSTOR' ? 1 : 0);
+
+    if (remainingImpostors === 0) {
+      updates[`games/${gameId}/status`] = 'ENDED';
+      updates[`games/${gameId}/winner`] = 'CREWMATES';
+    } else if (remainingImpostors >= remainingCrewmates) {
+      updates[`games/${gameId}/status`] = 'ENDED';
+      updates[`games/${gameId}/winner`] = 'IMPOSTORS';
+    }
   }
 
   await db.ref().update(updates);
-
-  await checkGameEnd(gameId);
-
-  return { success: true, ejectedPlayerId, reason };
-});
-
-export const scanQrAndStartTask = functions.https.onCall(async (data, context) => {
-  if (!context.auth) throw new functions.https.HttpsError('unauthenticated', 'Must be signed in');
-
-  const { gameId, qrToken } = data;
-  const playerId = context.auth.uid;
-
-  let decoded: any;
-  try {
-    decoded = jwt.verify(qrToken, JWT_SECRET) as any;
-  } catch (error) {
-    throw new functions.https.HttpsError('invalid-argument', 'Invalid QR token');
-  }
-
-  if (decoded.gameId !== gameId) {
-    throw new functions.https.HttpsError('invalid-argument', 'QR for different game');
-  }
-
-  if (decoded.exp < Date.now()) {
-    throw new functions.https.HttpsError('invalid-argument', 'QR token expired');
-  }
-
-  const [assignmentSnapshot, taskSnapshot] = await Promise.all([
-    db.ref(`assignments/${gameId}/${playerId}/${decoded.taskId}`).once('value'),
-    db.ref(`tasks/${gameId}/${decoded.taskId}`).once('value')
-  ]);
-
-  const assignment = assignmentSnapshot.val();
-  const task = taskSnapshot.val();
-
-  if (!assignment || !task) throw new functions.https.HttpsError('not-found', 'Task not assigned');
-  if (assignment.status !== 'PENDING') throw new functions.https.HttpsError('failed-precondition', 'Task already complete');
-  if (task.qr_id !== decoded.qrId) throw new functions.https.HttpsError('invalid-argument', 'Wrong QR for task');
-
-  return {
-    type: task.type,
-    requiresPhoto: task.type === 'PHYSICAL',
-    miniId: task.mini_id
-  };
-});
-
-export const completeDigitalTask = functions.https.onCall(async (data, context) => {
-  if (!context.auth) throw new functions.https.HttpsError('unauthenticated', 'Must be signed in');
-
-  const { gameId, taskId, miniId, score } = data;
-  const playerId = context.auth.uid;
-
-  const [assignmentSnapshot, taskSnapshot] = await Promise.all([
-    db.ref(`assignments/${gameId}/${playerId}/${taskId}`).once('value'),
-    db.ref(`tasks/${gameId}/${taskId}`).once('value')
-  ]);
-
-  const assignment = assignmentSnapshot.val();
-  const task = taskSnapshot.val();
-
-  if (!assignment || !task) throw new functions.https.HttpsError('not-found', 'Task not found');
-  if (assignment.status !== 'PENDING') throw new functions.https.HttpsError('failed-precondition', 'Task already complete');
-  if (task.type !== 'DIGITAL') throw new functions.https.HttpsError('invalid-argument', 'Not a digital task');
-  if (task.mini_id !== miniId) throw new functions.https.HttpsError('invalid-argument', 'Wrong mini game');
-
-  const thresholds: { [key: string]: number } = {
-    mg_reaction: 300,
-    mg_wires: 20000,
-    mg_puzzle: 30000,
-    mg_memory: 25000
-  };
-
-  const threshold = thresholds[miniId] || 10000;
-  if (score > threshold) {
-    throw new functions.https.HttpsError('failed-precondition', 'Score too low');
-  }
-
-  await db.ref(`assignments/${gameId}/${playerId}/${taskId}`).update({
-    status: 'COMPLETE',
-    score,
-    completed_at: Date.now()
-  });
-
-  await checkGameEnd(gameId);
-
-  return { success: true };
-});
-
-export const completeSabotageMini = functions.https.onCall(async (data, context) => {
-  if (!context.auth) throw new functions.https.HttpsError('unauthenticated', 'Must be signed in');
-
-  const { gameId, interruptId, accessoryRole } = data;
-
-  const gameSnapshot = await db.ref(`games/${gameId}`).once('value');
-  const game = gameSnapshot.val();
-
-  if (!game) throw new functions.https.HttpsError('not-found', 'Game not found');
-  if (!game.interrupts.active || game.interrupts.active.id !== interruptId) {
-    throw new functions.https.HttpsError('failed-precondition', 'Sabotage not active');
-  }
-  if (game.interrupts.active.type !== 'SABOTAGE') {
-    throw new functions.https.HttpsError('invalid-argument', 'Not a sabotage');
-  }
-
-  const sabotageRef = db.ref(`sabotages/${gameId}/${interruptId}`);
-  const sabotageSnapshot = await sabotageRef.once('value');
-  const sabotage = sabotageSnapshot.val() || {};
-
-  const updates: any = {};
-  updates[`${accessoryRole}_complete`] = true;
-
-  await sabotageRef.update(updates);
-
-  const updatedSnapshot = await sabotageRef.once('value');
-  const updated = updatedSnapshot.val();
-
-  if (updated?.MASTER_complete && updated?.SLAVE_complete) {
-    await db.ref(`games/${gameId}/interrupts/active`).set(null);
-  }
-
-  return { success: true };
-});
-
-export const endGame = functions.https.onCall(async (data, context) => {
-  if (!context.auth) throw new functions.https.HttpsError('unauthenticated', 'Must be signed in');
-
-  const { gameId, winner } = data;
-
-  const gameSnapshot = await db.ref(`games/${gameId}`).once('value');
-  const game = gameSnapshot.val();
-
-  if (!game) throw new functions.https.HttpsError('not-found', 'Game not found');
-  if (game.host_uid !== context.auth.uid) {
-    throw new functions.https.HttpsError('permission-denied', 'Only host can end game');
-  }
-
-  await db.ref(`games/${gameId}`).update({
-    status: 'ENDED',
-    winner: winner || 'NONE'
-  });
-
-  return { success: true };
-});
-
-async function checkGameEnd(gameId: string) {
-  const [gameSnapshot, playersSnapshot, assignmentsSnapshot] = await Promise.all([
-    db.ref(`games/${gameId}`).once('value'),
-    db.ref(`players/${gameId}`).once('value'),
-    db.ref(`assignments/${gameId}`).once('value')
-  ]);
-
-  const game = gameSnapshot.val();
-  const players = playersSnapshot.val() || {};
-  const assignments = assignmentsSnapshot.val() || {};
-
-  if (!game || game.status !== 'RUNNING') return;
-
-  let aliveImpostors = 0;
-  let aliveCrewmates = 0;
-  let aliveSnitches = 0;
-
-  for (const player of Object.values(players) as any[]) {
-    if (player.alive) {
-      if (player.role === 'IMPOSTOR') aliveImpostors++;
-      else if (player.role === 'SNITCH') aliveSnitches++;
-      else aliveCrewmates++;
-    }
-  }
-
-  if (aliveImpostors >= aliveCrewmates + aliveSnitches) {
-    await db.ref(`games/${gameId}`).update({
-      status: 'ENDED',
-      winner: 'IMPOSTORS'
-    });
-    return;
-  }
-
-  if (aliveImpostors === 0) {
-    let allTasksComplete = true;
-
-    for (const [playerId, playerAssignments] of Object.entries(assignments)) {
-      const player = players[playerId];
-      if (!player || player.role === 'IMPOSTOR') continue;
-
-      for (const assignment of Object.values(playerAssignments as any)) {
-        if (assignment.status !== 'COMPLETE') {
-          allTasksComplete = false;
-          break;
-        }
-      }
-      if (!allTasksComplete) break;
-    }
-
-    if (allTasksComplete) {
-      await db.ref(`games/${gameId}`).update({
-        status: 'ENDED',
-        winner: 'CREWMATES'
-      });
-    }
-  }
 }
 
-export const selectWhoDied = functions.https.onCall(async (data, context) => {
-  if (!context.auth) throw new functions.https.HttpsError('unauthenticated', 'Must be signed in');
+export const updateGameConfig = onCall(corsOptions, async (request) => {
+  if (!request.auth) throw new HttpsError('unauthenticated', 'Must be signed in');
 
-  const { gameId, playerId } = data;
-
-  const playerSnapshot = await db.ref(`players/${gameId}/${playerId}`).once('value');
-  const player = playerSnapshot.val();
-
-  if (!player) throw new functions.https.HttpsError('not-found', 'Player not found');
-  if (!player.alive) throw new functions.https.HttpsError('failed-precondition', 'Player already dead');
-
-  await db.ref(`players/${gameId}/${playerId}/alive`).set(false);
-  await checkGameEnd(gameId);
-
-  return { success: true };
-});
-
-export const commenceVoting = functions.https.onCall(async (data, context) => {
-  if (!context.auth) throw new functions.https.HttpsError('unauthenticated', 'Must be signed in');
-
-  const { gameId } = data;
+  const { gameId, config } = request.data;
+  if (!gameId || !config) {
+    throw new HttpsError('invalid-argument', 'Missing required fields');
+  }
 
   const gameSnapshot = await db.ref(`games/${gameId}`).once('value');
   const game = gameSnapshot.val();
 
-  if (!game) throw new functions.https.HttpsError('not-found', 'Game not found');
-  if (!game.interrupts.active || game.interrupts.active.type !== 'MEETING') {
-    throw new functions.https.HttpsError('failed-precondition', 'No meeting active');
+  if (!game) throw new HttpsError('not-found', 'Game not found');
+  if (game.host_uid !== request.auth.uid) {
+    throw new HttpsError('permission-denied', 'Only host can update config');
+  }
+  if (game.status !== 'LOBBY') {
+    throw new HttpsError('failed-precondition', 'Cannot update config after game started');
   }
 
-  const now = Date.now();
-  const votingEndsAt = now + game.config.voting_duration_ms;
-
-  await db.ref(`meetings/${gameId}/${game.interrupts.active.id}/ends_at`).set(votingEndsAt);
+  await db.ref(`games/${gameId}/config`).update(config);
 
   return { success: true };
 });
