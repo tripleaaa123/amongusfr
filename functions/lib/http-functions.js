@@ -114,17 +114,24 @@ exports.createGameHTTP = (0, https_1.onRequest)({ region: 'us-central1' }, async
             timers: { server_ts: Date.now() }
         });
         // Also add host as first player
-        await db.ref(`players/${gameId}/${decodedToken.uid}`).set({
-            uid: decodedToken.uid,
-            nickname: 'Host',
-            role: 'CREWMATE',
-            alive: true,
-            device_id: 'host-device',
-            rejoin_token: jwt.sign({ gameId, playerId: decodedToken.uid }, JWT_SECRET),
-            joined_at: Date.now(),
-            last_seen: Date.now(),
-            cooldowns: {}
-        });
+        console.log('Creating host player for game:', gameId, 'uid:', decodedToken.uid);
+        try {
+            await db.ref(`players/${gameId}/${decodedToken.uid}`).set({
+                uid: decodedToken.uid,
+                nickname: 'Host',
+                role: 'CREWMATE',
+                alive: true,
+                device_id: 'host-device',
+                rejoin_token: jwt.sign({ gameId, playerId: decodedToken.uid }, JWT_SECRET),
+                joined_at: Date.now(),
+                last_seen: Date.now(),
+                cooldowns: {}
+            });
+            console.log('Host player created successfully');
+        }
+        catch (playerError) {
+            console.error('Failed to create host player:', playerError);
+        }
         res.status(200).json({ result: { gameId, gameCode, accessoryCode, playerId: decodedToken.uid } });
     }
     catch (error) {
@@ -163,8 +170,10 @@ exports.joinGameHTTP = (0, https_1.onRequest)({ region: 'us-central1' }, async (
             return;
         }
         // Find game by code
+        console.log('Looking for game with code:', gameCode);
         const gamesSnapshot = await db.ref('games').orderByChild('code').equalTo(gameCode).once('value');
         const games = gamesSnapshot.val();
+        console.log('Found games:', games ? Object.keys(games) : 'none');
         if (!games) {
             res.status(404).json({ error: { message: 'Game not found', code: 'not-found' } });
             return;
@@ -177,17 +186,25 @@ exports.joinGameHTTP = (0, https_1.onRequest)({ region: 'us-central1' }, async (
         }
         const playerId = decodedToken.uid;
         const rejoinToken = jwt.sign({ gameId, playerId }, JWT_SECRET);
-        await db.ref(`players/${gameId}/${playerId}`).set({
-            uid: playerId,
-            nickname,
-            role: 'CREWMATE',
-            alive: true,
-            device_id: deviceId,
-            rejoin_token: rejoinToken,
-            joined_at: Date.now(),
-            last_seen: Date.now(),
-            cooldowns: {}
-        });
+        console.log('Adding player to game:', gameId, 'player:', playerId, 'nickname:', nickname);
+        try {
+            await db.ref(`players/${gameId}/${playerId}`).set({
+                uid: playerId,
+                nickname,
+                role: 'CREWMATE',
+                alive: true,
+                device_id: deviceId,
+                rejoin_token: rejoinToken,
+                joined_at: Date.now(),
+                last_seen: Date.now(),
+                cooldowns: {}
+            });
+            console.log('Player added successfully');
+        }
+        catch (playerError) {
+            console.error('Failed to add player:', playerError);
+            throw playerError;
+        }
         res.status(200).json({ result: { playerId, rejoinToken, gameId } });
     }
     catch (error) {

@@ -27,8 +27,11 @@ export default function GameLobby() {
 
     const unsubPlayers = onValue(playersRef, (snapshot) => {
       const data = snapshot.val() || {};
+      console.log('Players path:', `players/${gameId}`);
       console.log('Players data from Firebase:', data);
-      setPlayers(Object.entries(data).map(([id, player]: any) => ({ id, ...player })));
+      const playersList = Object.entries(data).map(([id, player]: any) => ({ id, ...player }));
+      console.log('Processed players list:', playersList);
+      setPlayers(playersList);
     });
 
     return () => {

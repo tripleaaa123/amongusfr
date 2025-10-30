@@ -35,8 +35,8 @@
     },
     "players": {
       "$gameId": {
+        ".read": "auth != null",
         "$playerId": {
-          ".read": "auth != null && ($playerId == auth.uid || root.child('games').child($gameId).child('status').val() == 'ENDED')",
           ".write": false,
           "last_seen": {
             ".write": "auth != null && $playerId == auth.uid"
