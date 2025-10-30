@@ -6,7 +6,7 @@ import { v4 as uuidv4 } from 'uuid';
 admin.initializeApp();
 
 // Export HTTP functions with proper CORS
-export { createGameHTTP, joinGameHTTP, joinAccessoryHTTP } from './http-functions';
+export { createGameHTTP, joinGameHTTP, joinAccessoryHTTP, startGameHTTP } from './http-functions';
 
 const db = admin.database();
 const JWT_SECRET = process.env.JWT_SECRET || 'dev-secret-key';

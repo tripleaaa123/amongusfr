@@ -1,6 +1,7 @@
 import { useState, useEffect } from "react";
 import { useNavigate, useSearchParams } from "react-router";
 import { db, callFunction, GameConfig } from "../lib/firebase";
+import { callHttpFunction } from "../lib/firebase-http";
 import { ref, onValue, update } from "firebase/database";
 
 export default function HostCreate() {
@@ -59,8 +60,7 @@ export default function HostCreate() {
     setLoading(true);
     try {
       await saveConfig();
-      const start = callFunction("startGame");
-      await start({ gameId });
+      const result = await callHttpFunction<{gameId: string}, {success: boolean}>("startGameHTTP", { gameId });
       navigate(`/game/${gameId}/play`);
     } catch (err: any) {
       alert(err.message || "Failed to start game");
