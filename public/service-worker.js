@@ -14,6 +14,13 @@ self.addEventListener('install', event => {
 });
 
 self.addEventListener('fetch', event => {
+  // Skip caching for Firebase Functions and API calls
+  if (event.request.url.includes('cloudfunctions.net') ||
+      event.request.url.includes('firebaseio.com') ||
+      event.request.url.includes('firebase')) {
+    return;
+  }
+
   event.respondWith(
     caches.match(event.request)
       .then(response => {
