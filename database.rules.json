@@ -3,6 +3,7 @@
     ".read": false,
     ".write": false,
     "games": {
+      ".indexOn": ["code", "accessory_code"],
       "$gameId": {
         ".read": "auth != null",
         "status": {
