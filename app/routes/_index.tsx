@@ -1,6 +1,7 @@
 import { useState } from "react";
 import { useNavigate } from "react-router";
 import { signInAnon, callFunction } from "../lib/firebase";
+import { callHttpFunction } from "../lib/firebase-http";
 import type { Route } from "../+types/root";
 
 export default function Index() {
@@ -15,9 +16,8 @@ export default function Index() {
     setError("");
     try {
       await signInAnon();
-      const createGame = callFunction("createGame");
-      const result = await createGame({});
-      navigate(`/host/create?gameId=${result.data.gameId}&code=${result.data.gameCode}&accessoryCode=${result.data.accessoryCode}`);
+      const result = await callHttpFunction<{}, {gameId: string, gameCode: string, accessoryCode: string}>("createGameHTTP", {});
+      navigate(`/host/create?gameId=${result.gameId}&code=${result.gameCode}&accessoryCode=${result.accessoryCode}`);
     } catch (err: any) {
       setError(err.message || "Failed to create game");
     } finally {
@@ -35,19 +35,21 @@ export default function Index() {
     setError("");
     try {
       await signInAnon();
-      const joinGame = callFunction("joinGame");
       const deviceId = localStorage.getItem("device_id") || crypto.randomUUID();
       localStorage.setItem("device_id", deviceId);
 
-      const result = await joinGame({
+      const result = await callHttpFunction<
+        {gameCode: string, nickname: string, deviceId: string},
+        {playerId: string, rejoinToken: string, gameId: string}
+      >("joinGameHTTP", {
         gameCode: gameCode.toUpperCase(),
         nickname,
         deviceId
       });
 
-      localStorage.setItem("player_id", result.data.playerId);
-      localStorage.setItem("rejoin_token", result.data.rejoinToken);
-      navigate(`/game/${result.data.gameId}/lobby`);
+      localStorage.setItem("player_id", result.playerId);
+      localStorage.setItem("rejoin_token", result.rejoinToken);
+      navigate(`/game/${result.gameId}/lobby`);
     } catch (err: any) {
       setError(err.message || "Failed to join game");
     } finally {
